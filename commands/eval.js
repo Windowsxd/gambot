@@ -10,7 +10,7 @@ module.exports = {
                 .setDescription("code")
                 .setRequired(true)
         ),
-    async execute(interaction, database) {
+    async execute(interaction, Database) {
         //await interaction.deferReply({ephemeral: true})
         var owner = OWNERS.find(ownerId => ownerId == interaction.user.id)
         await interaction.deferReply()

@@ -1,113 +1,121 @@
-const {SlashCommandBuilder} = require("discord.js");
+const {SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, ComponentType, userMention} = require("discord.js");
 const GAMBLECAPCOOLDOWN = 86400000
-function formatTimestamp(timestamp) {
-	timestamp = timestamp/1000
-    const seconds = Math.floor(timestamp % 60);
-    const minutes = Math.floor(timestamp / 60) % 60;
-    const hours = Math.floor(timestamp / 3600) % 24;
-    const days = Math.floor(timestamp / 86400);
-    
-    if (days > 0) {
-        return `${days} day${days !== 1 ? 's' : ''}, ${hours} hour${hours !== 1 ? 's' : ''}, ${minutes} minute${minutes !== 1 ? 's' : ''}, and ${seconds} second${seconds !== 1 ? 's' : ''}`;
-    } else if (hours > 0) {
-        return `${hours} hour${hours !== 1 ? 's' : ''}, ${minutes} minute${minutes !== 1 ? 's' : ''}, and ${seconds} second${seconds !== 1 ? 's' : ''}`;
-    } else if (minutes > 0) {
-        return `${minutes} minute${minutes !== 1 ? 's' : ''}, and ${seconds} second${seconds !== 1 ? 's' : ''}`;
-    } else {
-        return `${seconds} second${seconds !== 1 ? 's' : ''}`;
-    }
-}
 
-function randInt(max) {return Math.floor(Math.random() * max)}
-
-function splitNoEmpties(str, strsplit) {
-	return str.split(strsplit).filter(function(i) {return i != ""})
+function randInt(min, max) {
+    min = Math.ceil(min);
+    max = Math.floor(max);
+    return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 module.exports = {
     data: new SlashCommandBuilder()
     	.setName("gamble")
     	.setDescription("gamble for roles!!!!"),
-    async execute(interaction, database) {
-		let startTime = Date.now()
-		if (interaction.member == null) {
-			interaction.reply("DM's are not yet supported")
+    async execute(interaction, Database) {
+		//This wont actually stop you from gambling if there are no roles, but i don't think people would be happy
+		if (!interaction.inGuild()) {
+			interaction.reply({content: "Please run this in a guild!", ephemeral: true})
 			return null
 		}
-        if (database.query(`SELECT guildId FROM Guilds WHERE guildId=${interaction.guildId};`).all().length == 0) {
+		let guildData = await Database.models.Guild.findOne({where: {guildId: interaction.guildId}})
+		if (!guildData) {
 			interaction.reply("The server has not been initialized! Please contact an administrator of this server and beg them to set it up.")
-            return null
-       	}
-        let guildData = database.query(`SELECT * FROM Guilds WHERE guildId=${interaction.guildId};`).all()[0]
-		if (guildData.ranks == "") {
+			return null
+		}
+		if ((await guildData.getRanks()).length == 0) {
 			interaction.reply("This server has no ranks to gamble for! Please contact an administrator, and weep.")
-			return null
 		}
-        if (guildData.roles == "") {
-			interaction.reply("This server does not have any roles to gamble for! Please contact an administator, and cry.")
-			return null
+		let userData = (await guildData.getUsers({where: {userId: interaction.member.id}}))[0]
+		if (!userData) {
+			userData = await Database.models.User.create({userId: interaction.member.id})
+			guildData.addUsers(userData)
 		}
-		if (database.query(`SELECT name FROM sqlite_master WHERE type='table' AND name='User_${interaction.member.id}';`).all().length == 0) {
-            database.query(`CREATE TABLE User_${interaction.member.id} (guildId, inventory, amountGambled, firstGamble);`).run()
-       	}
-		if (database.query(`SELECT guildId from User_${interaction.member.id} WHERE guildId=${interaction.guildId};`).all().length == 0) {
-			//the first time this user uses this command in this server
-			database.query(`INSERT INTO User_${interaction.member.id} (guildId, inventory, amountGambled) VALUES (${interaction.guildId}, '', 0);`).run()
-			console.log(`First time user ${interaction.member.id} gambled in ${interaction.guildId}, created index`)
-		}
-		let userData = database.query(`SELECT * from User_${interaction.member.id} WHERE guildId=${interaction.guildId};`).all()[0]
-		var allRanks = splitNoEmpties(guildData.ranks, "|")
-		var allRoles = splitNoEmpties(guildData.roles, "|")
-		var randomNum = Math.random()
-		var totalProbability = 0
-		for (rankCluster of allRanks) {
-			rankCluster = rankCluster.split(":")
-			totalProbability += parseFloat(rankCluster[1])
-		}
-		var currentTime = Date.now()
-		if (userData.firstGamble == null) {
-			database.query(`UPDATE User_${interaction.member.id} SET firstGamble = ${currentTime} WHERE guildId=${interaction.guildId};`).run()
-			userData.firstGamble = currentTime
-		}
-		if (userData.amountGambled >= guildData.dailyGambleCap) {
-			if (currentTime - userData.firstGamble < GAMBLECAPCOOLDOWN) {
-				interaction.reply({content: `You hit the gambling limit! Try again in ${formatTimestamp(GAMBLECAPCOOLDOWN - (currentTime - userData.firstGamble))}`, ephemeral: true})
+		
+		if (userData.amountGambled >= guildData.gambleCap) {
+			if (Date.now() - userData.lastGamble < guildData.gambleDebounce) {
+				interaction.reply({content: `Try again <t:${Math.floor((userData.lastGamble + GAMBLECAPCOOLDOWN)/1000)}:R>`, ephemeral: true})
 				return null
 			} else {
-				database.query(`UPDATE User_${interaction.member.id} SET firstGamble = ${currentTime} WHERE guildId=${interaction.guildId};`).run()
 				userData.amountGambled = 0
-				userData.firstGamble = currentTime
+				await userData.save()
 			}
 		}
-		database.query(`UPDATE User_${interaction.member.id} SET amountGambled = ${userData.amountGambled+1} WHERE guildId=${interaction.guildId};`).run()
-		totalProbability = totalProbability/100
-		var goneThrough = 0
-		for (rankCluster of allRanks) {
-			rankCluster = rankCluster.split(":")
-			if (parseFloat(rankCluster[1]) == 0) {continue}
-			var chanceForRank = parseFloat(rankCluster[1])/100
-			if (randomNum <= chanceForRank+goneThrough && randomNum > goneThrough) { //acquired this rank of roles
-				//now roll for a role
-				var rankRoles = allRoles.filter(function(role) {return role.split(":")[1] == rankCluster[0]})
-				if (rankRoles.length == 0) { //They cant win anything!
-					interaction.reply("You would have gotten something, but no roles exist in this rank! go cry to admins.")
-				}
-				var randomRole = rankRoles[randInt(rankRoles.length-1)]
-				var userInventory = splitNoEmpties(userData.inventory, "|")
-				var roleId = randomRole.split(":")[0]
-				if (userInventory.includes(roleId)) { //the user already has this role, make them lose
-					break
-				} else {
-					userInventory.push(roleId)
-					database.query(`UPDATE User_${interaction.member.id} SET inventory = '${userInventory.join("|")}' WHERE guildId=${interaction.guildId};`).run()
-					interaction.reply(`You got <@&${roleId}> (rank ${rankCluster[0]} role!)`)
-				}
+		let gambleButton = new ButtonBuilder()
+			.setCustomId("gamble")
+			.setLabel('Gamble')
+			.setStyle(ButtonStyle.Primary)
+
+		let row = new ActionRowBuilder()
+			.addComponents(gambleButton)
+		let content = ""
+		let filter = (inter) => inter.member.id == interaction.member.id;
+		let response = await interaction.reply({content: content, components: [row]})
+		let collector = response.createMessageComponentCollector({ filter, componentType: ComponentType.Button, time: 60000*5 }); //valid for 5 minutes
+
+		collector.on('collect', async i => {
+			await guildData.reload()
+			await userData.reload()
+			if (userData.amountGambled >= guildData.gambleCap) {
+				content += "\nGambling session ended."
+				collector.stop()
 				return null
 			}
-			goneThrough += chanceForRank
-		}
-		// If the total probability is greater than 1, we need to resize all probabilities to add up to 1
-		interaction.reply(`L you lost loser`)
-		console.log(`Command took ${(Date.now() - startTime)/1000} seconds`)
-    }
+			userData.lastGamble = Date.now()
+			await userData.save()
+			let allRanks = await guildData.getRanks()
+			if (allRanks.length == 0) {
+				content += "\nThis server has no ranks to gamble for! Please contact an administrator, and weep."
+				collector.stop()
+				return null
+			}
+			let randomNum = Math.random()
+			let totalProbability = (await guildData.getRanks()).map(function(rank) {return rank.probability}).reduce(function(a,b) {return a+b}, 0)
+			totalProbability = totalProbability/100
+			let goneThrough = 0
+			userData.amountGambled += 1
+			await userData.save()
+			console.log(await userData.getRoles())
+			for (var rank of allRanks) {
+				if (rank.probability == 0) {continue}
+				let chanceForRank = (rank.probability/100)/(1*(totalProbability<=1) + totalProbability*(totalProbability>1))
+				console.log(chanceForRank)
+				if (randomNum <= chanceForRank+goneThrough && randomNum > goneThrough) { //Won this rank of roles
+					let roles = await rank.getRoles()
+					if (roles.length == 0) {
+						content += `\n(${userData.amountGambled}/${guildData.gambleCap}) You would have gotten something, but no roles exist in this rank! go cry to admins.`
+						if (userData.amountGambled >= guildData.gambleCap) {collector.stop("cap"); return null}
+						await i.update(content)
+						return null
+					}
+					let randomRole = roles[randInt(0, roles.length-1)]
+					let userRoles = await userData.getRoles()
+					let killMe = false
+					for (userRole of userRoles) {
+						if (userRole.roleId == randomRole.roleId) {
+							killMe = true
+							break
+						}
+					}
+					if (killMe) {break}
+					await userData.addRoles(randomRole)
+					content += `\n(${userData.amountGambled}/${guildData.gambleCap}) You got <@&${randomRole.roleId}> (rank ${rank.name}!)`
+					if (userData.amountGambled >= guildData.gambleCap) {collector.stop("cap"); return null}
+					await i.update(content)
+					return null
+				}
+				goneThrough += totalProbability
+			}
+			content += `\n(${userData.amountGambled}/${guildData.gambleCap}) L you lost loser`
+			if (userData.amountGambled >= guildData.gambleCap) {collector.stop("cap"); return null}
+			await i.update(content)
+		})
+		collector.on("end", async (collected, reason) => {
+			if (reason == "time") {
+				content += "\nGambling session ended."
+			} else if (reason == "cap") {
+				content += `\nThis gambling session is over! You can gamble <t:${Math.floor((userData.lastGamble + GAMBLECAPCOOLDOWN)/1000)}:R>`
+			}
+			interaction.editReply({content: content, components: []})
+		})
+    },
 }

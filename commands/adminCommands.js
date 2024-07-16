@@ -1,30 +1,9 @@
-const {SlashCommandBuilder} = require("discord.js");
-
-function findRank(allRanks, rank) {
-	// allRanks should be structured like so: [ "rankName:probability", "rankName:probability" ]
-	var rankIndex = -1
-	for (var rankClusterIndex in allRanks) {
-		var rankCluster = allRanks[rankClusterIndex].split(":")
-		if (rankCluster[0] == rank) { //the rank already exists
-			rankIndex = rankClusterIndex
-			break
-		}
-	}
-	return rankIndex
-}
-
-function splitNoEmpties(str, strsplit) {
-	return str.split(strsplit).filter(function(i) {return i != ""})
-}
+const {SlashCommandBuilder, PermissionsBitField} = require("discord.js");
 
 module.exports = {
     data: new SlashCommandBuilder()
     	.setName("admin")
     	.setDescription("All Admin commands")
-		.addSubcommand(subcommand =>
-			subcommand.setName("list")
-			.setDescription("List all roles and parent ranks from the database")
-		)
 		.addSubcommandGroup(subcommandGroup =>
 			subcommandGroup.setName("role")
 			.setDescription("Manage roles in gambling database")
@@ -39,6 +18,8 @@ module.exports = {
 				.addStringOption(option =>
 					option.setName("rank")
 					.setDescription("Rank of the role")
+					.setMaxLength(20)
+					.setMinLength(1)
 					.setRequired(true)
 				)
 			)
@@ -81,51 +62,65 @@ module.exports = {
 				)
 			)
 		),
-    async execute(interaction, database) {
-        if (database.query(`SELECT guildId FROM Guilds WHERE guildId=${interaction.guildId};`).all().length == 0) {
-            database.query(`INSERT INTO Guilds (guildId, roles, dailyGambleCap, ranks) VALUES (${interaction.guildId}, '', 10, '');`).run()
-            console.log(`Guild ${interaction.guildId} has no place in the database, creating!`)
-       	}
-        let guildData = database.query(`SELECT * FROM Guilds WHERE guildId=${interaction.guildId};`).all()[0]
+    async execute(interaction, Database) {
+		if (!interaction.inGuild()) {
+			interaction.reply({content: "Please run this in a guild!", ephemeral: true})
+			return null
+		}
+		let guildData = await Database.models.Guild.findOne({where: {guildId: interaction.guildId}})
+		if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
+			interaction.reply({content: "Only admins can use this command!", ephemeral: true})
+			return null
+		}
+		if (!guildData) {
+			console.log("No guild data found! creating guild data...")
+			guildData = await Database.models.Guild.create({guildId: interaction.guildId})
+		}
         switch (interaction.options.getSubcommandGroup()) {
             case "role":
                 switch (interaction.options.getSubcommand()) {
                     case "add":
-                        var role = interaction.options.getRole("role")
-                        var rank = interaction.options.getString("rank")
-						// check if the rank exists
-						if (role.id == interaction.guildId) {
+                        var requestedRole = interaction.options.getRole("role")
+                        var requestedRank = interaction.options.getString("rank")
+						console.log(requestedRole.id)
+						if (requestedRole.id == interaction.guildId) {
 							interaction.reply({content: "You cannot use the role @everyone.", ephemeral: true})
 							break
 						}
-						if (findRank(splitNoEmpties(guildData.ranks, "|"), rank) == -1) { //rank doesnt exist in the database
-							interaction.reply({content: `Rank \`${rank}\` doesn't exist in the database.`, ephemeral: true})
-							break
+                        var rank = (await guildData.getRanks({where: {name: requestedRank}}))[0]
+                        if (!rank) {
+                            interaction.reply({content: `The rank ${requestedRank} doesn't exist! Try something else.`, ephemeral: true})
+                            break
+                        }
+						try {
+							role = await Database.models.Role.create({roleId: requestedRole.id})
+							rank.addRoles(role)
+							interaction.reply({content: `Successfully registered <@&${requestedRole.id}> to ${requestedRank}.\nMake sure <@&${requestedRole.id}> is beneath this bot's highest role.`, ephemeral: true})
+						} catch (err) {
+							interaction.reply({content: `<@&${requestedRole.id}> is already registered with a rank!`, ephemeral: true})
 						}
-						var allRoles = splitNoEmpties(guildData.roles, "|")
-						if (findRank(allRoles, `${role.id}`) != -1) { //the role already exists in the database
-							interaction.reply({content: `Role <@&${role.id}> already exists in the database.`, ephemeral: true})
-							break
-						}
-						allRoles.push(`${role.id}:${rank}`)
-						//At this point, it passed the conditions to be added to the database
-						var constructedRoles = allRoles.join("|")
-						database.query(`UPDATE Guilds SET roles = '${constructedRoles}' WHERE guildId=${interaction.guildId};`).run()
-						interaction.reply({content: `Successfully added <@&${role.id}> to ${rank}!\nMake sure <@&${role.id}> is beneath this bot's highest role.`, ephemeral: true})
                         break
                     case "remove":
-                        var role = interaction.options.getRole("role")
-						var allRoles = splitNoEmpties(guildData.roles, "|")
-						var roleIndex = findRank(allRoles, `${role.id}`)
-						if (roleIndex == -1) { //the role already exists in the database
-							interaction.reply({content: `Role <@&${role.id}> doesn't exist in the database.`, ephemeral: true})
+						var requestedRole = interaction.options.getRole("role")
+                        var requestedRank = interaction.options.getString("rank")
+						if (requestedRole.id == interaction.guildId) {
+							interaction.reply({content: "@everyone guaranteed is not registered.", ephemeral: true})
 							break
 						}
-						allRoles.splice(roleIndex, 1)
-						//At this point, it passed the conditions to be added to the database
-						var constructedRoles = allRoles.join("|")
-						database.query(`UPDATE Guilds SET roles = '${constructedRoles}' WHERE guildId=${interaction.guildId};`).run()
-						interaction.reply({content: `Successfully removed <@&${role.id}>!`, ephemeral: true})
+                        var ranks = await guildData.getRanks()
+						let deleted = false
+						for (rank of ranks) {
+							let role = (await rank.getRoles({where: {roleId: requestedRole.id}}))[0]
+							if (role) {
+								await role.destroy()
+								deleted = true
+								interaction.reply({content: `Unregistered <@&${requestedRole.id}> from ${rank.name}`, ephemeral: true})
+								break
+							}
+						}
+						if (!deleted) {
+							interaction.reply({content: `<@&${requestedRole.id}> is not registered.`, ephemeral: true})
+						}
                         break
                 }
                 break
@@ -134,79 +129,31 @@ module.exports = {
                     case "add":
                         var requestedRank = interaction.options.getString("rank")
                         var probability = interaction.options.getNumber("probability")
-                        var allRanks = splitNoEmpties(guildData.ranks, "|") // Should be structured like so: [ "rankName:probability" ]
-                        var rankExists = false
-                        var totalProbability = 0
-                        for (let rankClusterString of allRanks) {
-							if (rankClusterString == "") {continue}
-                            let rankCluster = rankClusterString.split(":")
-                            if (rankCluster[0] == requestedRank) { //the rank already exists
-                                rankExists = true
-                            }
-                            totalProbability += parseFloat(rankCluster[1])
-                        }
-                        if (rankExists) {
+                        var rank = (await guildData.getRanks({where: {name: requestedRank}}))[0]
+                        if (rank) {
                             interaction.reply({content: `The rank ${requestedRank} already exists! try a different name.`, ephemeral: true})
                             break
                         }
-                        allRanks.push(`${requestedRank}:${probability}:0`)
-                        let constructedRanks = allRanks.join("|")
-                        database.query(`UPDATE Guilds SET ranks = '${constructedRanks}' WHERE guildId=${interaction.guildId};`).run()
-                        interaction.reply({content: `Successfully created ${requestedRank} with a chance of ${probability}% to appear. The total probability is now ${totalProbability+probability}%.`, ephemeral: true})
+						rank = await Database.models.Rank.create({name: requestedRank, probability: probability})
+						guildData.addRanks(rank)
+						var totalProbability = (await guildData.getRanks()).map(function(rank) {return rank.probability}).reduce(function(a,b) {return a+b}, 0)
+                        interaction.reply({content: `Successfully created ${requestedRank} with a chance of ${probability}% to appear. The total probability is now ${totalProbability}%.`, ephemeral: true})
                         break
                     case "remove":
-                        var requestedRank = interaction.options.getString("rank")
-                        var allRanks = splitNoEmpties(guildData.ranks, "|") // Should be structured like so: [ "rankName:probability" ]
-                        var totalProbability = 0
-                        var rankRemoved = false
-                        for (let rankClusterIndex in allRanks) {
-                            let rankCluster = allRanks[rankClusterIndex].split(":")
-                            if (rankCluster[0] == requestedRank) { //the rank already exists
-                                rankRemoved = rankClusterIndex
-                            } else {
-                                totalProbability += parseFloat(rankCluster[1])
-                            }
-                        }
-                        if (rankRemoved) {
-                            allRanks.splice(rankRemoved, 1)
-                            let constructedRanks = allRanks.join("|")
-                            database.query(`UPDATE Guilds SET ranks = '${constructedRanks}' WHERE guildId=${interaction.guildId};`).run()
-                            interaction.reply({content: `Removed rank ${requestedRank}. The total probability is now ${totalProbability}%.`, ephemeral: true})
-                        } else {
-                            interaction.reply({content: `The rank ${requestedRank} doesn't exist! try a different name.`, ephemeral: true})
+						var requestedRank = interaction.options.getString("rank")
+                        var rank = (await guildData.getRanks({where: {name: requestedRank}}))[0]
+                        if (rank) {
+							await guildData.removeRanks(rank)
+							await rank.destroy()
+							var totalProbability = (await guildData.getRanks()).map(function(rank) {return rank.probability}).reduce(function(a,b) {return a+b}, 0)
+                            interaction.reply({content: `Successfully removed ${requestedRank}. The total probability is ${totalProbability}%`, ephemeral: true})
                             break
-                        }
-                        break
+                        } else {
+							interaction.reply({content: `${requestedRank} does not exist.`, ephemeral: true})
+							break
+						}
                 }
+				break
   		}
-		if (interaction.options.getSubcommand() == "list") {
-			var rankTree = "" 
-			var allRanks = splitNoEmpties(guildData.ranks, "|")
-			var allRoles = splitNoEmpties(guildData.roles, "|")
-			var totalProbability = 0
-			for (rankClusterString of allRanks) {
-				var rankCluster = rankClusterString.split(":")
-				rankTree += `${rankCluster[0]}: ${rankCluster[1]}%`
-				totalProbability += parseFloat(rankCluster[1])
-				var rolesString = ""
-				for (var role of allRoles) {
-					role = splitNoEmpties(role, ":")
-					if (role[1] == rankCluster[0]) {
-						rolesString += `- <@&${role[0]}>\n`
-					}
-				}
-				if (rolesString == "") {
-					rankTree += " (No roles found)\n"
-				} else {
-					rankTree += "\n"+rolesString
-				}
-			}
-			if (rankTree == "") {
-				rankTree = "No ranks found!"
-			} else {
-				rankTree += `Total probability is ${totalProbability}%.`
-			}
-			interaction.reply({content: rankTree, ephemeral: true})
-		}
     }
 }
