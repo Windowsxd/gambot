@@ -61,6 +61,24 @@ module.exports = {
 					.setRequired(true)
 				)
 			)
+		)
+		.addSubcommandGroup(subCommandGroup =>
+			subCommandGroup.setName("json")
+			.setDescription("Managing the gamble bot using JSON")
+			.addSubcommand(subcommand => 
+				subcommand.setName("import")
+				.setDescription("import JSON server data")
+				.addAttachmentOption(option => 
+					option.setName("json")
+					.setDescription("JSON file")
+					.setRequired(true)
+				)
+			)
+			.addSubcommand(subcommand => 
+				subcommand.setName("export")
+				.setDescription("Export server data into JSON, or generates a template if empty")
+			)
+			
 		),
     async execute(interaction, Database) {
 		if (!interaction.inGuild()) {

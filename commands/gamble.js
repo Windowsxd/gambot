@@ -1,4 +1,4 @@
-const {SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, ComponentType, userMention} = require("discord.js");
+const {SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, ComponentType} = require("discord.js");
 const GAMBLECAPCOOLDOWN = 86400000
 
 function randInt(min, max) {
