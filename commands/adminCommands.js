@@ -1,4 +1,4 @@
-const {SlashCommandBuilder, PermissionsBitField} = require("discord.js");
+const {SlashCommandBuilder, PermissionsBitField, AttachmentBuilder} = require("discord.js");
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -171,6 +171,46 @@ module.exports = {
 							break
 						}
                 }
+				break
+			case "json":
+				switch (interaction.options.getSubcommand()) {
+					case "import":
+						interaction.reply("test")
+						break
+					case "export":
+						var guildParsed = {
+							gambleCap: guildData.gambleCap,
+							gambleDebounce: guildData.gambleDebounce,
+							ranks: []
+						}
+						for (let rank of await guildData.getRanks()) {
+							var rankParsed = {
+								name: rank.name,
+								probability: rank.probability,
+								sacrifice: rank.sacrifice,
+								roles: []
+							}
+							for (let role of await rank.getRoles()) {
+								try {
+									var roleInGuild = await interaction.guild.roles.fetch(role.roleId, 1)
+									var roleParsed = {
+										name: roleInGuild.name,
+										color: roleInGuild.hexColor
+									}
+									rankParsed.roles.push(roleParsed)
+								} catch (err) {
+									console.log("some role dont exist probably")
+								}
+							}
+							guildParsed.ranks.push(rankParsed)
+						}
+						var guildJSON = JSON.stringify(guildParsed, null, 4)
+						var jsonFile = new AttachmentBuilder()
+							.setName("gambling_roles.json")
+							.setFile(Buffer.from(guildJSON, 'utf8'))
+						interaction.reply({content: "Here you go", files: [jsonFile]})
+
+				}
 				break
   		}
     }
