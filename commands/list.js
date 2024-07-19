@@ -24,7 +24,6 @@ module.exports = {
 				rankTree += "(No roles found)"
 			} else {
 				for (let role of roles) {
-					console.log(role.roleId)
 					rankTree += `\n- <@&${role.roleId}>`
 				}
 			}

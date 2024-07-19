@@ -6,7 +6,7 @@ const path = require("bun:path")
 const fs = require("fs")
 const commandsPath = path.join(__dirname, 'commands')
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'))
-const Database = new Sequelize("sqlite:Data.sqlite");
+const Database = new Sequelize("sqlite:Data.sqlite", {logging: false});
 const Guild = Database.define("Guild", {
 	guildId: {
 		type: DataTypes.STRING,
@@ -75,6 +75,9 @@ User.belongsTo(Guild)
 Guild.hasMany(Rank, {
 	onDelete: "CASCADE"
 })
+Guild.hasMany(Role, {
+	onDelete: "CASCADE"
+})
 Rank.belongsTo(Guild)
 Rank.hasMany(Role, {
 	onDelete: "CASCADE"
@@ -82,6 +85,7 @@ Rank.hasMany(Role, {
 User.hasMany(Role)
 Role.belongsTo(Rank)
 Role.belongsToMany(User, {through: "UserRoles"})
+Role.belongsTo(Guild)
 //These models are also located at Database.models.name, where name is the name of the model.
 await Database.sync();
 

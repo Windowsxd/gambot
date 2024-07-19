@@ -1,4 +1,36 @@
+const Validate = require('jsonschema').validate;
 const {SlashCommandBuilder, PermissionsBitField, AttachmentBuilder} = require("discord.js");
+const guildJSONSchema = {
+	type: "object",
+	required: ["gambleCap", "gambleDebounce", "ranks"],
+	properties: {
+		gambleCap: {type: "number", minimum: 1},
+		gambleDebounce: {type: "number"},
+		ranks: {
+			type: "array",
+			items: {
+				type: "object",
+				required: ["name", "probability", "sacrifice", "roles"],
+				properties: {
+					name: {type: "string"},
+					probability: {type: "number", maximum: 100, minimum: 0},
+					sacrifice: {type: "boolean"},
+					roles: {
+						type: "array",
+						items: {
+							type: "object",
+							required: ["name", "color"],
+							properties: {
+								name: {type: "string"},
+								color: {type: "string", pattern: "^#?[0-9a-fA-F]{6}$"}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -34,6 +66,28 @@ module.exports = {
 			)
 		)
 		.addSubcommandGroup(subCommandGroup =>
+			subCommandGroup.setName("settings")
+			.setDescription("Manage settings in gambling database")
+			.addSubcommand(subcommand =>
+				subcommand.setName("gamblingcap")
+				.setDescription("Get/set the gambling cap")
+				.addNumberOption(option =>
+					option.setName("value")
+					.setDescription("Set the value")
+					.setMinValue(1)
+				)
+			)
+			.addSubcommand(subcommand =>
+				subcommand.setName("gambledebounce")
+				.setDescription("Get/set the gambling cap")
+				.addNumberOption(option =>
+					option.setName("value")
+					.setDescription("Set the value")
+					.setMinValue(0)
+				)
+			)
+		)
+		.addSubcommandGroup(subCommandGroup =>
 			subCommandGroup.setName("rank")
 			.setDescription("Manage ranks in gambling database")
 			.addSubcommand(subcommand =>
@@ -50,6 +104,10 @@ module.exports = {
 					.setMinValue(0)
 					.setRequired(true)
 					.setMaxValue(100)
+				)
+				.addBooleanOption(option =>
+					option.setName("sacrifice")
+					.setDescription("Whether this rank is special, and can only be obtained through sacrifice. Default is false")
 				)
 			)
 			.addSubcommand(subcommand =>
@@ -72,6 +130,14 @@ module.exports = {
 					option.setName("json")
 					.setDescription("JSON file")
 					.setRequired(true)
+				)
+				.addBooleanOption(option =>
+					option.setName("removeroles")
+					.setDescription("Clears all roles from the guild.")
+				)
+				.addBooleanOption(option =>
+					option.setName("cleardata")
+					.setDescription("Clears ALL data from the database. Default: True")
 				)
 			)
 			.addSubcommand(subcommand => 
@@ -113,6 +179,7 @@ module.exports = {
 						try {
 							role = await Database.models.Role.create({roleId: requestedRole.id})
 							rank.addRoles(role)
+							guildData.addRoles(role)
 							interaction.reply({content: `Successfully registered <@&${requestedRole.id}> to ${requestedRank}.\nMake sure <@&${requestedRole.id}> is beneath this bot's highest role.`, ephemeral: true})
 						} catch (err) {
 							interaction.reply({content: `<@&${requestedRole.id}> is already registered with a rank!`, ephemeral: true})
@@ -125,20 +192,13 @@ module.exports = {
 							interaction.reply({content: "@everyone guaranteed is not registered.", ephemeral: true})
 							break
 						}
-                        var ranks = await guildData.getRanks()
-						let deleted = false
-						for (rank of ranks) {
-							let role = (await rank.getRoles({where: {roleId: requestedRole.id}}))[0]
-							if (role) {
-								await role.destroy()
-								deleted = true
-								interaction.reply({content: `Unregistered <@&${requestedRole.id}> from ${rank.name}`, ephemeral: true})
-								break
-							}
-						}
-						if (!deleted) {
+                        var role = (await guildData.getRoles({where: {roleId: requestedRole.id}}))[0]
+						if (!role) {
 							interaction.reply({content: `<@&${requestedRole.id}> is not registered.`, ephemeral: true})
+							break
 						}
+						await role.destroy()
+						interaction.reply({content: `Unregistered <@&${requestedRole.id}> from ${rank.name}`, ephemeral: true})
                         break
                 }
                 break
@@ -147,13 +207,14 @@ module.exports = {
                     case "add":
                         var requestedRank = interaction.options.getString("rank")
                         var probability = interaction.options.getNumber("probability")
+						var sacrifice = (interaction.options.getBoolean("sacrifice") != null) ? interaction.options.getBoolean("sacrifice") : false
                         var rank = (await guildData.getRanks({where: {name: requestedRank}}))[0]
                         if (rank) {
                             interaction.reply({content: `The rank ${requestedRank} already exists! try a different name.`, ephemeral: true})
                             break
                         }
-						rank = await Database.models.Rank.create({name: requestedRank, probability: probability})
-						guildData.addRanks(rank)
+						rank = await Database.models.Rank.create({name: requestedRank, probability: probability, sacrifice: sacrifice})
+						await guildData.addRanks(rank)
 						var totalProbability = (await guildData.getRanks()).map(function(rank) {return rank.probability}).reduce(function(a,b) {return a+b}, 0)
                         interaction.reply({content: `Successfully created ${requestedRank} with a chance of ${probability}% to appear. The total probability is now ${totalProbability}%.`, ephemeral: true})
                         break
@@ -172,10 +233,93 @@ module.exports = {
 						}
                 }
 				break
+			case "settings":
+				var value = interaction.options.getNumber("value")
+				switch (interaction.options.getSubcommand()) {
+					case "gamblingcap":
+						if (value == null) {
+							interaction.reply({content: `Gambling cap: ${guildData.gambleCap}`, ephemeral: true})
+						} else {
+							guildData.gambleCap = value
+							await guildData.save()
+							interaction.reply({content: `Gambling cap is now ${guildData.gambleCap}`, ephemeral: true})
+						}
+						break
+					case "gamblingdebounce":
+						if (value == null) {
+							interaction.reply({content: `Gambling debounce: ${guildData.gambleDebounce}`, ephemeral: true})
+						} else {
+							guildData.gambleDebounce = value
+							await guildData.save()
+							interaction.reply({content: `Gambling debounce is now ${guildData.gambleDebounce}`, ephemeral: true})
+						}
+						break
+				}
+				break
 			case "json":
 				switch (interaction.options.getSubcommand()) {
 					case "import":
-						interaction.reply("test")
+						if (!interaction.guild.members.me.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
+							interaction.reply({content: "This bot has no permissions to manage roles.... what are the admins doing??", ephemeral: true})
+							break
+						}
+						var removeRoles = interaction.options.getBoolean("removeroles")
+						var clearData = (interaction.options.getBoolean("cleardata") != null) ? interaction.options.getBoolean("removeroles") : true
+						if (removeRoles) {
+							for (let role of await guildData.getRoles()) {
+								let guildRole = await interaction.guild.roles.fetch(role.roleId, 1)
+								if (guildRole && interaction.guild.members.me.roles.highest.comparePositionTo(guildRole) > 0) {
+									guildRole.delete("JSON import")
+								}
+							}
+						}
+						if (clearData) {
+							await guildData.destroy()
+							guildData = await Database.models.Guild.create({guildId: interaction.guildId})
+						}
+						await interaction.deferReply({ephemeral: true})
+						var jsonURL = interaction.options.getAttachment("json").attachment
+						var file = await (await fetch(jsonURL)).blob()
+						if (file.type.slice(0,16) != "application/json") {interaction.editReply("The file is not a JSON file...."); break}
+						var json = JSON.parse(await file.text())
+						var validation = Validate(json, guildJSONSchema)
+						if (!validation.valid) {
+							let errorString = ""
+							for (error of validation.errors) {
+								errorString += error.toString()+"\n"
+							}
+							interaction.editReply(`Your JSON file has invalid parameters!:\n\`\`\`${errorString}\`\`\``)
+							break
+						}
+						guildData.gambleCap = json.gambleCap
+						guildData.gambleDebounce = json.gambleDebounce
+						await guildData.save()
+						var exceptions = ""
+						let ranksToAdd = []
+						for (let rankData of json.ranks) {
+							var rank = (await guildData.getRanks({where: {name: rankData.name}}))[0]
+							if (rank) {
+								exceptions += `Rank ${rankData.name} already exists.\n`
+							} else {
+								rank = await Database.models.Rank.create({name: rankData.name, probability: rankData.probability, sacrifice: rankData.sacrifice})
+								ranksToAdd.push(rank)
+							}
+							let rolesToAdd = []
+							for (let roleData of rankData.roles) {
+								let role = await interaction.guild.roles.create({name: roleData.name, color: roleData.color, reason: "Imported JSON"})
+								let roleForDatabase = await Database.models.Role.create({roleId: role.id})
+								rolesToAdd.push(roleForDatabase)
+							}
+							await rank.addRoles(rolesToAdd)
+							await guildData.addRoles(rolesToAdd)
+						}
+						await guildData.addRanks(ranksToAdd)
+						await guildData.reload()
+						var response = "Successfully changed the server settings"
+						if (exceptions != "") {
+							response += ", with exceptions:\n"+exceptions
+						}
+						interaction.editReply(response)
 						break
 					case "export":
 						var guildParsed = {

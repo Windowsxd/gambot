@@ -1,10 +1,9 @@
 const {SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, ComponentType} = require("discord.js");
-const GAMBLECAPCOOLDOWN = 86400000
 
 function randInt(min, max) {
-    min = Math.ceil(min);
-    max = Math.floor(max);
-    return Math.floor(Math.random() * (max - min + 1)) + min;
+    min = Math.ceil(min)
+    max = Math.floor(max)
+    return Math.floor(Math.random() * (max - min + 1)) + min
 }
 
 module.exports = {
@@ -22,8 +21,8 @@ module.exports = {
 			interaction.reply("The server has not been initialized! Please contact an administrator of this server and beg them to set it up.")
 			return null
 		}
-		if ((await guildData.getRanks()).length == 0) {
-			interaction.reply("This server has no ranks to gamble for! Please contact an administrator, and weep.")
+		if ((await guildData.getRanks({where: {sacrifice: false}})).length == 0) {
+			interaction.reply("This server has no normal ranks to gamble for! Please contact an administrator, and weep.")
 		}
 		let userData = (await guildData.getUsers({where: {userId: interaction.member.id}}))[0]
 		if (!userData) {
@@ -33,7 +32,7 @@ module.exports = {
 		
 		if (userData.amountGambled >= guildData.gambleCap) {
 			if (Date.now() - userData.lastGamble < guildData.gambleDebounce) {
-				interaction.reply({content: `Try again <t:${Math.floor((userData.lastGamble + GAMBLECAPCOOLDOWN)/1000)}:R>`, ephemeral: true})
+				interaction.reply({content: `Try again <t:${Math.floor((userData.lastGamble + guildData.gambleDebounce)/1000)}:R>`, ephemeral: true})
 				return null
 			} else {
 				userData.amountGambled = 0
@@ -62,23 +61,21 @@ module.exports = {
 			}
 			userData.lastGamble = Date.now()
 			await userData.save()
-			let allRanks = await guildData.getRanks()
+			let allRanks = await guildData.getRanks({where: {sacrifice: false}})
 			if (allRanks.length == 0) {
 				content += "\nThis server has no ranks to gamble for! Please contact an administrator, and weep."
 				collector.stop()
 				return null
 			}
 			let randomNum = Math.random()
-			let totalProbability = (await guildData.getRanks()).map(function(rank) {return rank.probability}).reduce(function(a,b) {return a+b}, 0)
+			let totalProbability = allRanks.map(function(rank) {return rank.probability}).reduce(function(a,b) {return a+b}, 0)
 			totalProbability = totalProbability/100
 			let goneThrough = 0
 			userData.amountGambled += 1
 			await userData.save()
-			console.log(await userData.getRoles())
 			for (var rank of allRanks) {
 				if (rank.probability == 0) {continue}
 				let chanceForRank = (rank.probability/100)/(1*(totalProbability<=1) + totalProbability*(totalProbability>1))
-				console.log(chanceForRank)
 				if (randomNum <= chanceForRank+goneThrough && randomNum > goneThrough) { //Won this rank of roles
 					let roles = await rank.getRoles()
 					if (roles.length == 0) {
@@ -96,14 +93,14 @@ module.exports = {
 							break
 						}
 					}
-					if (killMe) {break}
+					if (killMe == true) {break}
 					await userData.addRoles(randomRole)
 					content += `\n(${userData.amountGambled}/${guildData.gambleCap}) You got <@&${randomRole.roleId}> (rank ${rank.name}!)`
 					if (userData.amountGambled >= guildData.gambleCap) {collector.stop("cap"); return null}
 					await i.update(content)
 					return null
 				}
-				goneThrough += totalProbability
+				goneThrough += chanceForRank
 			}
 			content += `\n(${userData.amountGambled}/${guildData.gambleCap}) L you lost loser`
 			if (userData.amountGambled >= guildData.gambleCap) {collector.stop("cap"); return null}
@@ -113,7 +110,7 @@ module.exports = {
 			if (reason == "time") {
 				content += "\nGambling session ended."
 			} else if (reason == "cap") {
-				content += `\nThis gambling session is over! You can gamble <t:${Math.floor((userData.lastGamble + GAMBLECAPCOOLDOWN)/1000)}:R>`
+				content += `\nThis gambling session is over! You can gamble <t:${Math.floor((userData.lastGamble + guildData.gambleDebounce)/1000)}:R>`
 			}
 			interaction.editReply({content: content, components: []})
 		})

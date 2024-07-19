@@ -77,7 +77,6 @@ module.exports = {
 					guildRoles.push(role.roleId)
 				}
 			}
-			console.log(guildRoles)
 			if (!interaction.guild.members.me.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
 				endingMessage = "This bot has no permissions to manage roles.... what are the admins doing??"
 				collector.stop("error")
