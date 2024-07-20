@@ -2,26 +2,28 @@ const Validate = require('jsonschema').validate;
 const {SlashCommandBuilder, PermissionsBitField, AttachmentBuilder} = require("discord.js");
 const guildJSONSchema = {
 	type: "object",
-	required: ["gambleCap", "gambleDebounce", "ranks"],
+	required: ["gambleCap", "gambleDebounce", "ranks", "sacrificeMaxProbability"],
 	properties: {
 		gambleCap: {type: "number", minimum: 1},
 		gambleDebounce: {type: "number"},
+		sacrificeMaxProbability: {type: "number", minimum: 0, maximum: 100},
 		ranks: {
 			type: "array",
 			items: {
 				type: "object",
-				required: ["name", "probability", "sacrifice", "roles"],
+				required: ["name", "probability", "sacrifice", "roles", "sacrificeProbabilityAddition"],
 				properties: {
-					name: {type: "string"},
+					name: {type: "string", minLength: 1, maxLength: 100},
 					probability: {type: "number", maximum: 100, minimum: 0},
 					sacrifice: {type: "boolean"},
+					sacrificeProbabilityAddition: {type: "number", minimum: 0, maximum: 100},
 					roles: {
 						type: "array",
 						items: {
 							type: "object",
 							required: ["name", "color"],
 							properties: {
-								name: {type: "string"},
+								name: {type: "string", minLength: 1, maxLength: 100},
 								color: {type: "string", pattern: "^#?[0-9a-fA-F]{6}$"}
 							}
 						}
@@ -50,7 +52,7 @@ module.exports = {
 				.addStringOption(option =>
 					option.setName("rank")
 					.setDescription("Rank of the role")
-					.setMaxLength(20)
+					.setMaxLength(100)
 					.setMinLength(1)
 					.setRequired(true)
 				)
@@ -79,11 +81,21 @@ module.exports = {
 			)
 			.addSubcommand(subcommand =>
 				subcommand.setName("gambledebounce")
-				.setDescription("Get/set the gambling cap")
+				.setDescription("Get/set the gambling debounce, measured in milliseconds. Default is 86400000")
 				.addNumberOption(option =>
 					option.setName("value")
 					.setDescription("Set the value")
 					.setMinValue(0)
+				)
+			)
+			.addSubcommand(subcommand =>
+				subcommand.setName("sacrificemaxprobability")
+				.setDescription("Get/set the maximum sacrifice probability")
+				.addNumberOption(option =>
+					option.setName("value")
+					.setDescription("Set the value")
+					.setMinValue(0)
+					.setMaxValue(100)
 				)
 			)
 		)
@@ -96,6 +108,8 @@ module.exports = {
 				.addStringOption(option =>
 					option.setName("rank")
 					.setDescription("Name of the rank")
+					.setMinLength(1)
+					.setMaxLength(100)
 					.setRequired(true)
 				)
 				.addNumberOption(option =>
@@ -109,14 +123,50 @@ module.exports = {
 					option.setName("sacrifice")
 					.setDescription("Whether this rank is special, and can only be obtained through sacrifice. Default is false")
 				)
+				.addNumberOption(option =>
+					option.setName("sacrificeprobabilityaddition")
+					.setDescription("How much this rank adds per role sacrificed. Default is +1% for each role sacrificed")
+					.setMinValue(0)
+					.setMaxValue(100)
+				)
 			)
 			.addSubcommand(subcommand =>
 				subcommand.setName("remove")
 				.setDescription("Remove a rank from the gambling database")
 				.addStringOption(option =>
 					option.setName("rank")
-					.setDescription("Name of the rank")
+					.setDescription("Name of target rank")
 					.setRequired(true)
+				)
+			)
+			.addSubcommand(subcommand => 
+				subcommand.setName("modify")
+				.setDescription("Modify a rank in the gambling database")
+				.addStringOption(option => 
+					option.setName("rank")
+					.setDescription("Name of target rank")
+					.setRequired(true)
+				)
+				.addStringOption(option => 
+					option.setName("newname")
+					.setDescription("New name of the target rank")
+					.setMaxLength(100)
+				)
+				.addNumberOption(option => 
+					option.setName("probability")
+					.setDescription("New probability of target rank")
+					.setMinValue(0)
+					.setMaxValue(100)
+				)
+				.addBooleanOption(option => 
+					option.setName("sacrifice")
+					.setDescription("New sacrifice property of target rank.")
+				)
+				.addNumberOption(option => 
+					option.setName("sacrificeprobabilityaddition")
+					.setDescription("New sacrifice probability addition of target rank")
+					.setMinValue(0)
+					.setMaxValue(100)
 				)
 			)
 		)
@@ -157,7 +207,7 @@ module.exports = {
 			return null
 		}
 		if (!guildData) {
-			console.log("No guild data found! creating guild data...")
+			//console.log("No guild data found! creating guild data...")
 			guildData = await Database.models.Guild.create({guildId: interaction.guildId})
 		}
         switch (interaction.options.getSubcommandGroup()) {
@@ -166,9 +216,12 @@ module.exports = {
                     case "add":
                         var requestedRole = interaction.options.getRole("role")
                         var requestedRank = interaction.options.getString("rank")
-						console.log(requestedRole.id)
 						if (requestedRole.id == interaction.guildId) {
 							interaction.reply({content: "You cannot use the role @everyone.", ephemeral: true})
+							break
+						}
+						if (requestedRole.managed == true) {
+							interaction.reply({content: `<@&${requestedRole.id}> is managed externally, and cannot be controlled by this bot.`, ephemeral: true})
 							break
 						}
                         var rank = (await guildData.getRanks({where: {name: requestedRank}}))[0]
@@ -208,16 +261,56 @@ module.exports = {
                         var requestedRank = interaction.options.getString("rank")
                         var probability = interaction.options.getNumber("probability")
 						var sacrifice = (interaction.options.getBoolean("sacrifice") != null) ? interaction.options.getBoolean("sacrifice") : false
+						var sacrificeAddition = (interaction.options.getBoolean("sacrificeprobabilityaddition") != null) ? interaction.options.getBoolean("sacrificeprobabilityaddition") : 1
+						
                         var rank = (await guildData.getRanks({where: {name: requestedRank}}))[0]
                         if (rank) {
                             interaction.reply({content: `The rank ${requestedRank} already exists! try a different name.`, ephemeral: true})
                             break
                         }
-						rank = await Database.models.Rank.create({name: requestedRank, probability: probability, sacrifice: sacrifice})
+						rank = await Database.models.Rank.create({name: requestedRank, probability: probability, sacrifice: sacrifice, sacrificeProbabilityAddition: sacrificeAddition})
 						await guildData.addRanks(rank)
 						var totalProbability = (await guildData.getRanks()).map(function(rank) {return rank.probability}).reduce(function(a,b) {return a+b}, 0)
                         interaction.reply({content: `Successfully created ${requestedRank} with a chance of ${probability}% to appear. The total probability is now ${totalProbability}%.`, ephemeral: true})
                         break
+					case "modify":
+						var requestedRank = interaction.options.getString("rank")
+                        var probability = interaction.options.getNumber("probability")
+						var newRankName = interaction.options.getString("newname")
+                        var sacrifice = interaction.options.getBoolean("sacrifice")
+						var sacrificeProbabilityAddition = interaction.options.getNumber("sacrificeprobabilityaddition")
+						var content = `Changes to ${requestedRank}:`
+						var unchangedContent = content
+						var rank = (await guildData.getRanks({where: {name: requestedRank}}))[0]
+                        if (!rank) {
+                            interaction.reply({content: `The rank ${requestedRank} doesn't exist. Try a different name.`, ephemeral: true})
+                            break
+                        }
+						if (probability) {
+							rank.probability = probability
+							content += `\nChanged probability to ${rank.probability}%`
+						}
+						if (sacrifice != null) {
+							rank.sacrifice = sacrifice
+							content += `\nChanged sacrifice state to ${rank.sacrifice}`
+						}
+						if (newRankName) {
+							rank.name = newRankName
+							content += `\nChanged rank name to ${rank.name}`
+						}
+						if (sacrificeProbabilityAddition) {
+							rank.sacrificeProbabilityAddition = sacrificeProbabilityAddition
+							content += `\nChanged rank sacrifice probability addition to ${rank.sacrificeProbabilityAddition}`
+						}
+						await rank.save()
+						if (content == unchangedContent) {
+							content += " (No changes made)"
+							content += `\nProbability is currently ${rank.probability}%`
+							content += `\nSacrifice state is currently ${rank.sacrifice}`
+							content += `\nSacrifice probability addition is currently ${rank.sacrificeProbabilityAddition}`
+						}
+						interaction.reply({content: content, ephemeral: true})
+						break
                     case "remove":
 						var requestedRank = interaction.options.getString("rank")
                         var rank = (await guildData.getRanks({where: {name: requestedRank}}))[0]
@@ -254,6 +347,15 @@ module.exports = {
 							interaction.reply({content: `Gambling debounce is now ${guildData.gambleDebounce}`, ephemeral: true})
 						}
 						break
+						case "sacrificemaxprobability":
+							if (value == null) {
+								interaction.reply({content: `Sacrifice maximum probability: ${guildData.sacrificeMaxProbability}%`, ephemeral: true})
+							} else {
+								guildData.sacrificeMaxProbability = value
+								await guildData.save()
+								interaction.reply({content: `The max sacrifice probability is now ${guildData.sacrificeMaxProbability}%`, ephemeral: true})
+							}
+							break
 				}
 				break
 			case "json":
@@ -293,6 +395,7 @@ module.exports = {
 						}
 						guildData.gambleCap = json.gambleCap
 						guildData.gambleDebounce = json.gambleDebounce
+						guildData.sacrificeMaxProbability = json.sacrificeMaxProbability
 						await guildData.save()
 						var exceptions = ""
 						let ranksToAdd = []
@@ -301,7 +404,7 @@ module.exports = {
 							if (rank) {
 								exceptions += `Rank ${rankData.name} already exists.\n`
 							} else {
-								rank = await Database.models.Rank.create({name: rankData.name, probability: rankData.probability, sacrifice: rankData.sacrifice})
+								rank = await Database.models.Rank.create({name: rankData.name, probability: rankData.probability, sacrifice: rankData.sacrifice, sacrificeProbabilityAddition: rankData.sacrificeProbabilityAddition})
 								ranksToAdd.push(rank)
 							}
 							let rolesToAdd = []
@@ -325,6 +428,7 @@ module.exports = {
 						var guildParsed = {
 							gambleCap: guildData.gambleCap,
 							gambleDebounce: guildData.gambleDebounce,
+							sacrificeMaxProbability: guildData.sacrificeMaxProbability,
 							ranks: []
 						}
 						for (let rank of await guildData.getRanks()) {
@@ -332,6 +436,7 @@ module.exports = {
 								name: rank.name,
 								probability: rank.probability,
 								sacrifice: rank.sacrifice,
+								sacrificeProbabilityAddition: rank.sacrificeProbabilityAddition,
 								roles: []
 							}
 							for (let role of await rank.getRoles()) {

@@ -46,24 +46,29 @@ module.exports = {
 
 		let row = new ActionRowBuilder()
 			.addComponents(gambleButton)
-		let content = ""
+		let content = []
+		function pushContent(cont) {
+			content.push(cont)
+			if (content.length > 10) {
+				content.splice(0,1)
+			}
+		}
 		let filter = (inter) => inter.member.id == interaction.member.id;
-		let response = await interaction.reply({content: content, components: [row]})
+		let response = await interaction.reply({content: content.join("\n"), components: [row]})
 		let collector = response.createMessageComponentCollector({ filter, componentType: ComponentType.Button, time: 60000*5 }); //valid for 5 minutes
 
 		collector.on('collect', async i => {
 			await guildData.reload()
 			await userData.reload()
 			if (userData.amountGambled >= guildData.gambleCap) {
-				content += "\nGambling session ended."
-				collector.stop()
+				collector.stop("time")
 				return null
 			}
 			userData.lastGamble = Date.now()
 			await userData.save()
 			let allRanks = await guildData.getRanks({where: {sacrifice: false}})
 			if (allRanks.length == 0) {
-				content += "\nThis server has no ranks to gamble for! Please contact an administrator, and weep."
+				pushContent("This server has no ranks to gamble for! Please contact an administrator, and weep.")
 				collector.stop()
 				return null
 			}
@@ -79,9 +84,9 @@ module.exports = {
 				if (randomNum <= chanceForRank+goneThrough && randomNum > goneThrough) { //Won this rank of roles
 					let roles = await rank.getRoles()
 					if (roles.length == 0) {
-						content += `\n(${userData.amountGambled}/${guildData.gambleCap}) You would have gotten something, but no roles exist in this rank! go cry to admins.`
+						pushContent(`(${userData.amountGambled}/${guildData.gambleCap}) You would have gotten something, but no roles exist in this rank! go cry to admins.`)
 						if (userData.amountGambled >= guildData.gambleCap) {collector.stop("cap"); return null}
-						await i.update(content)
+						await i.update(content.join("\n"))
 						return null
 					}
 					let randomRole = roles[randInt(0, roles.length-1)]
@@ -95,24 +100,24 @@ module.exports = {
 					}
 					if (killMe == true) {break}
 					await userData.addRoles(randomRole)
-					content += `\n(${userData.amountGambled}/${guildData.gambleCap}) You got <@&${randomRole.roleId}> (rank ${rank.name}!)`
+					pushContent(`(${userData.amountGambled}/${guildData.gambleCap}) You got <@&${randomRole.roleId}> (rank ${rank.name}!)`)
 					if (userData.amountGambled >= guildData.gambleCap) {collector.stop("cap"); return null}
-					await i.update(content)
+					await i.update(content.join("\n"))
 					return null
 				}
 				goneThrough += chanceForRank
 			}
-			content += `\n(${userData.amountGambled}/${guildData.gambleCap}) L you lost loser`
+			pushContent(`(${userData.amountGambled}/${guildData.gambleCap}) L you lost loser`)
 			if (userData.amountGambled >= guildData.gambleCap) {collector.stop("cap"); return null}
-			await i.update(content)
+			await i.update(content.join("\n"))
 		})
 		collector.on("end", async (collected, reason) => {
 			if (reason == "time") {
-				content += "\nGambling session ended."
+				pushContent("Gambling session ended.")
 			} else if (reason == "cap") {
-				content += `\nThis gambling session is over! You can gamble <t:${Math.floor((userData.lastGamble + guildData.gambleDebounce)/1000)}:R>`
+				pushContent(`This gambling session is over! You can gamble <t:${Math.floor((userData.lastGamble + guildData.gambleDebounce)/1000)}:R>`)
 			}
-			interaction.editReply({content: content, components: []})
+			interaction.editReply({content: content.join("\n"), components: []})
 		})
     },
 }

@@ -14,11 +14,16 @@ module.exports = {
 			interaction.reply("This server is poor....")
 			return null
 		}
-		let totalProbability = 0
+		let totalProbabilityNormal = 0
+		let totalProbabilitySacrifice = 0
 		let rankTree = ""
 		for (let rank of await guildData.getRanks()) {
-			totalProbability += rank.probability
-			rankTree += `\n${rank.name} (${rank.probability}%): `
+			if (rank.sacrifice == true) {
+				totalProbabilitySacrifice += rank.probability
+			} else {
+				totalProbabilityNormal += rank.probability
+			}
+			rankTree += `\n${rank.name} (${rank.probability}%)${rank.sacrifice ? " (Sacrifice)" : ""}: `
 			let roles = await rank.getRoles()
 			if (roles.length == 0) {
 				rankTree += "(No roles found)"
@@ -31,7 +36,7 @@ module.exports = {
 		if (rankTree == "") {
 			rankTree = "No ranks found!"
 		} else {
-			rankTree += `\nIn total: ${totalProbability}% chance to obtain a role.`
+			rankTree += `\nIn total: ${totalProbabilityNormal}% chance to obtain a role normally.\n${totalProbabilitySacrifice}% base to obtain a role through sacrifice.`
 		}
 		interaction.reply(rankTree)
     }

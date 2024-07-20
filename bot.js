@@ -22,6 +22,11 @@ const Guild = Database.define("Guild", {
 		type: DataTypes.NUMBER,
 		allowNull: false,
 		defaultValue: 86400000
+	},
+	sacrificeMaxProbability: {
+		type: DataTypes.NUMBER,
+		allowNull: false,
+		defaultValue: 80
 	}
 })
 const Rank = Database.define("Rank", {
@@ -39,6 +44,11 @@ const Rank = Database.define("Rank", {
 		type: DataTypes.BOOLEAN,
 		allowNull: false,
 		defaultValue: false
+	},
+	sacrificeProbabilityAddition: {
+		type: DataTypes.NUMBER,
+		allowNull: false,
+		defaultValue: 0
 	}
 })
 const User = Database.define("User", {

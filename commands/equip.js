@@ -1,8 +1,5 @@
-const {SlashCommandBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, RoleSelectMenuBuilder, ActionRowBuilder, ComponentType, PermissionsBitField} = require("discord.js")
+const {SlashCommandBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, ComponentType, PermissionsBitField} = require("discord.js")
 const util = require("util")
-function splitNoEmpties(str, strsplit) {
-	return str.split(strsplit).filter(function(i) {return i != ""})
-}
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -36,7 +33,7 @@ module.exports = {
 			.setLabel("Nothing")
 			.setDescription("Unequip whatever role you currently have.")
 			.setValue("unequip")
-		
+		let roleMenus = []
 		let options = [unequip]
 		for (var role of inventory) {
 			var discordRole = await interaction.guild.roles.fetch(role.roleId, 1)
@@ -52,20 +49,69 @@ module.exports = {
 			}
 			options.push(option)
 		}
-		let select = new StringSelectMenuBuilder()
-			.setCustomId("gambleEquipper")
-			.setPlaceholder("Pick a role to equip...!")
-			.setOptions(options)
+		//Because of discord's 25 per menu limit, we need to break this into chunks.
+		let amountMenus = Math.ceil(options.length/25)
+		for (let i=0; i < amountMenus; i++) {
+			let roleMenu = new StringSelectMenuBuilder()
+				.setCustomId(`roleMenu${i}`)
+				.setMinValues(0)
+				.setMaxValues(1)
+				.setPlaceholder(`(${i+1}/${amountMenus}) Pick a role to equip...`)
+			let localOptions = []
+			for (let choiceIndex = i*25; choiceIndex < i*25 + 25 && choiceIndex < options.length; choiceIndex++) {
+				localOptions.push(options[choiceIndex])
+			}
+			roleMenu.setOptions(localOptions)
+			roleMenus.push(roleMenu)
+		}
+
+		let previousButton = new ButtonBuilder()
+			.setCustomId("previous")
+			.setLabel("<")
+			.setDisabled(true)
+			.setStyle(ButtonStyle.Secondary)
+		let nextButton = new ButtonBuilder()
+			.setCustomId("next")
+			.setLabel(">")
+			.setStyle(ButtonStyle.Secondary)
 		
+		let currentMenu = 0
 		let row = new ActionRowBuilder()
-			.addComponents(select)
+			.addComponents(roleMenus[currentMenu])
+		let buttonRow = new ActionRowBuilder()
+			.addComponents(previousButton, nextButton)
+		let components = [row]
+		if (roleMenus.length > 1) {components.push(buttonRow)}
 		let response = await interaction.reply({
 			content: 'Pick a role',
-			components: [row],
+			components: components,
 			ephemeral: true
 		})
+
 		let filter = (inter) => inter.member.id == interaction.member.id;
 		let collector = response.createMessageComponentCollector({ filter, componentType: ComponentType.StringSelect, time: 60000*5 }) // valid for 5 minutes
+		let buttonCollector = response.createMessageComponentCollector({ filter, componentType: ComponentType.Button, time: 60000*5 }) // valid for 5 minutes
+		buttonCollector.on("collect", async i => {
+			if (i.customId == "previous") {
+				currentMenu = Math.max(currentMenu - 1, 0)
+				row = new ActionRowBuilder()
+					.addComponents(roleMenus[currentMenu])
+				previousButton.setDisabled(currentMenu == 0)
+				nextButton.setDisabled(currentMenu == roleMenus.length - 1)
+				buttonRow = new ActionRowBuilder()
+					.addComponents([previousButton, nextButton])
+				i.update({components: [row, buttonRow]})
+			} else if (i.customId == "next") {
+				currentMenu = Math.min(currentMenu + 1, roleMenus.length - 1)
+				row = new ActionRowBuilder()
+					.addComponents(roleMenus[currentMenu])
+				previousButton.setDisabled(currentMenu == 0)
+				nextButton.setDisabled(currentMenu == roleMenus.length - 1)
+				buttonRow = new ActionRowBuilder()
+					.addComponents([previousButton, nextButton])
+				i.update({components: [row, buttonRow]})
+			}
+		})
 		let endingMessage = "No changes were made."
 		collector.on('collect', async i => {
 			await guildData.reload()
@@ -108,6 +154,7 @@ module.exports = {
 			collector.stop("picked")
 		})
 		collector.on("end", async (collected, reason) => {
+			buttonCollector.stop()
 			interaction.editReply({components: [], content: endingMessage})
 		})
     }
