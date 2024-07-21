@@ -103,6 +103,10 @@ module.exports = {
 			await userData.reload()
 			if (i.customId == "sacrifice") {
 				//They locked in
+				if (chosenRoles.length == 0) {
+					i.update({content: "No locking in until you pick at least 1 role"})
+					return null
+				}
 				collector.stop("lockin")
 				rolesCollector.stop()
 			} else if (i.customId == "nevermind") {
@@ -155,6 +159,10 @@ module.exports = {
 				let allRanks = await guildData.getRanks({where: {sacrifice: true}})
 				if (allRanks.length == 0) {
 					interaction.editReply({content: "Between the time it took you to send this command and lock in, admins removed all special ranks. Sucks.", components: []})
+					return null
+				}
+				if (chosenRoles.length == 0) {
+					interaction.editReply({content: "Really?", components: []})
 					return null
 				}
 				for (let roleId of chosenRoles) {
@@ -230,7 +238,7 @@ module.exports = {
 							let rolesGainArray = []
 							for (roleId of chosenRoles) {
 								if (randomRole.roleId != roleId) {
-									let roleData = (await userData.getRoles({where: {roleId: roleId}}))[0]
+									let roleData = (await guildData.getRoles({where: {roleId: roleId}}))[0]
 									if (roleData) {rolesGainArray.push(roleData)}
 								}
 							}

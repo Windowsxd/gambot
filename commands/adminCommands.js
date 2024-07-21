@@ -337,8 +337,8 @@ module.exports = {
 							await guildData.save()
 							interaction.reply({content: `Gambling cap is now ${guildData.gambleCap}`, ephemeral: true})
 						}
-						break
-					case "gamblingdebounce":
+						break;
+					case "gambledebounce":
 						if (value == null) {
 							interaction.reply({content: `Gambling debounce: ${guildData.gambleDebounce}`, ephemeral: true})
 						} else {
@@ -346,16 +346,16 @@ module.exports = {
 							await guildData.save()
 							interaction.reply({content: `Gambling debounce is now ${guildData.gambleDebounce}`, ephemeral: true})
 						}
-						break
-						case "sacrificemaxprobability":
-							if (value == null) {
-								interaction.reply({content: `Sacrifice maximum probability: ${guildData.sacrificeMaxProbability}%`, ephemeral: true})
-							} else {
-								guildData.sacrificeMaxProbability = value
-								await guildData.save()
-								interaction.reply({content: `The max sacrifice probability is now ${guildData.sacrificeMaxProbability}%`, ephemeral: true})
-							}
-							break
+						break;
+					case "sacrificemaxprobability":
+						if (value == null) {
+							interaction.reply({content: `Sacrifice maximum probability: ${guildData.sacrificeMaxProbability}%`, ephemeral: true})
+						} else {
+							guildData.sacrificeMaxProbability = value
+							await guildData.save()
+							interaction.reply({content: `The max sacrifice probability is now ${guildData.sacrificeMaxProbability}%`, ephemeral: true})
+						}
+						break;
 				}
 				break
 			case "json":
