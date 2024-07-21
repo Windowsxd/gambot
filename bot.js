@@ -73,8 +73,7 @@ const Role = Database.define("Role", {
 	roleId: {
 		type: DataTypes.STRING,
 		allowNull: false,
-		defaultValue: "",
-		unique: true
+		defaultValue: ""
 	}
 })
 
@@ -92,12 +91,12 @@ Rank.belongsTo(Guild)
 Rank.hasMany(Role, {
 	onDelete: "CASCADE"
 })
-User.hasMany(Role)
+User.belongsToMany(Role, {through: "UserRoles"})
 Role.belongsTo(Rank)
 Role.belongsToMany(User, {through: "UserRoles"})
 Role.belongsTo(Guild)
 //These models are also located at Database.models.name, where name is the name of the model.
-await Database.sync();
+await Database.sync({alter: true});
 
 const client = new Discord.Client({ intents: [
 	Discord.GatewayIntentBits.Guilds,

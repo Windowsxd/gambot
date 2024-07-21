@@ -229,14 +229,13 @@ module.exports = {
                             interaction.reply({content: `The rank ${requestedRank} doesn't exist! Try something else.`, ephemeral: true})
                             break
                         }
-						try {
-							role = await Database.models.Role.create({roleId: requestedRole.id})
-							rank.addRoles(role)
-							guildData.addRoles(role)
-							interaction.reply({content: `Successfully registered <@&${requestedRole.id}> to ${requestedRank}.\nMake sure <@&${requestedRole.id}> is beneath this bot's highest role.`, ephemeral: true})
-						} catch (err) {
+						if ((await guildData.getRoles({where: {roleId: requestedRole.id}})).length != 0) {
 							interaction.reply({content: `<@&${requestedRole.id}> is already registered with a rank!`, ephemeral: true})
 						}
+						role = await Database.models.Role.create({roleId: requestedRole.id})
+						rank.addRoles(role)
+						guildData.addRoles(role)
+						interaction.reply({content: `Successfully registered <@&${requestedRole.id}> to ${requestedRank}.\nMake sure <@&${requestedRole.id}> is beneath this bot's highest role.`, ephemeral: true})
                         break
                     case "remove":
 						var requestedRole = interaction.options.getRole("role")
