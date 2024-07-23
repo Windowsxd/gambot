@@ -401,20 +401,20 @@ module.exports = {
 						}
 						var removeRoles = interaction.options.getBoolean("removeroles")
 						var clearData = (interaction.options.getBoolean("cleardata") != null) ? interaction.options.getBoolean("removeroles") : true
+						await interaction.deferReply({ephemeral: true})
 						if (removeRoles) {
 							for (let role of await guildData.getRoles()) {
 								let guildRole = await interaction.guild.roles.fetch(role.roleId, 1)
 								if (guildRole && interaction.guild.members.me.roles.highest.comparePositionTo(guildRole) > 0) {
 									guildRole.delete("JSON import")
+									await delay(2000)
 								}
-								await delay(3000)
 							}
 						}
 						if (clearData) {
 							await guildData.destroy()
 							guildData = await Database.models.Guild.create({guildId: interaction.guildId})
 						}
-						await interaction.deferReply({ephemeral: true})
 						var jsonURL = interaction.options.getAttachment("json").attachment
 						var file = await (await fetch(jsonURL)).blob()
 						if (file.type.slice(0,16) != "application/json") {interaction.editReply("The file is not a JSON file...."); break}
@@ -447,7 +447,7 @@ module.exports = {
 								let role = await interaction.guild.roles.create({name: roleData.name, color: roleData.color, reason: "Imported JSON"})
 								let roleForDatabase = await Database.models.Role.create({roleId: role.id})
 								rolesToAdd.push(roleForDatabase)
-								await delay(3000)
+								await delay(2000)
 							}
 							await rank.addRoles(rolesToAdd)
 							await guildData.addRoles(rolesToAdd)

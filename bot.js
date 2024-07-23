@@ -173,4 +173,4 @@ setInterval(async () => {
 	if (!thisFile.equals(latestFile)) {
 		await fs.copyFile(dataPath, `./backups/${Date.now()}.sqlite`, callback)
 	}
-}, 10000)
+}, 60000*10)
