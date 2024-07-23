@@ -16,28 +16,43 @@ module.exports = {
 		}
 		let totalProbabilityNormal = 0
 		let totalProbabilitySacrifice = 0
-		let rankTree = ""
+		let rankTreeClusters = [[]]
+		let rankTreeClusterIndex = 0
+		function clusterPush(string) {
+			if ((rankTreeClusters[rankTreeClusterIndex].join("\n")+"\n"+string).length >= 2000) {
+				rankTreeClusterIndex += 1
+				rankTreeClusters.push([])
+			}
+			rankTreeClusters[rankTreeClusterIndex].push(string)
+		}
 		for (let rank of await guildData.getRanks()) {
 			if (rank.sacrifice == true) {
 				totalProbabilitySacrifice += rank.probability
 			} else {
 				totalProbabilityNormal += rank.probability
 			}
-			rankTree += `\n${rank.name} (${rank.probability}%)${rank.sacrifice ? " (Sacrifice)" : ""}: `
 			let roles = await rank.getRoles()
-			if (roles.length == 0) {
-				rankTree += "(No roles found)"
-			} else {
+			let rankString = `${rank.name} (${rank.probability}%)${rank.sacrifice ? " (Sacrifice)" : ""}${roles.length == 0? " (No roles found)": ": "}`
+			clusterPush(rankString)
+			if (roles.length > 0) {
 				for (let role of roles) {
-					rankTree += `\n- <@&${role.roleId}>`
+					clusterPush(`- <@&${role.roleId}>`)
 				}
 			}
 		}
-		if (rankTree == "") {
-			rankTree = "No ranks found!"
+		if (rankTreeClusters[0].length == 0) {
+			clusterPush("No ranks found!")
 		} else {
-			rankTree += `\nIn total: ${totalProbabilityNormal}% chance to obtain a role normally.\n${totalProbabilitySacrifice}% base to obtain a role through sacrifice.`
+			clusterPush(`In total: ${totalProbabilityNormal}% chance to obtain a role normally.\n${totalProbabilitySacrifice}% base to obtain a role through sacrifice.`)
 		}
-		interaction.reply(rankTree)
+		let replied = false
+		for (let cluster of rankTreeClusters) {
+			if (replied == true) {
+				await interaction.followUp(cluster.join("\n"))
+			} else {
+				await interaction.reply(cluster.join("\n"))
+				replied = true
+			}
+		}
     }
 }

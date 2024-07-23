@@ -1,5 +1,6 @@
 const Validate = require('jsonschema').validate;
 const {SlashCommandBuilder, PermissionsBitField, AttachmentBuilder} = require("discord.js");
+const delay = ms => new Promise(res => setTimeout(res, ms));
 const guildJSONSchema = {
 	type: "object",
 	required: ["gambleCap", "gambleDebounce", "ranks", "sacrificeMaxProbability"],
@@ -63,6 +64,20 @@ module.exports = {
 				.addRoleOption(option =>
 					option.setName("role")
 					.setDescription("Role to remove")
+					.setRequired(true)
+				)
+			)
+			.addSubcommand(subcommand =>
+				subcommand.setName("gift")
+				.setDescription("Gift a role to your favourite person")
+				.addRoleOption(option =>
+					option.setName("role")
+					.setDescription("The role to gift to user. must be in database")
+					.setRequired(true)
+				)
+				.addUserOption(option =>
+					option.setName("user")
+					.setDescription("The user to gift it to.")
 					.setRequired(true)
 				)
 			)
@@ -252,6 +267,26 @@ module.exports = {
 						await role.destroy()
 						interaction.reply({content: `Unregistered <@&${requestedRole.id}> from ${rank.name}`, ephemeral: true})
                         break
+					case "gift":
+						var requestedRole = interaction.options.getRole("role")
+						var requestedUser = interaction.options.getUser("user")
+						var userData = (await guildData.getUsers({where: {userId: requestedUser.id}}))[0]
+						if (!userData) {
+							userData = await Database.models.User.create({userId: requestedUser.id})
+							guildData.addUsers(userData)
+						}
+						var role = (await guildData.getRoles({where: {roleId: requestedRole.id}}))[0]
+						if (!role) {
+							interaction.reply({content: `<@&${requestedRole.id}> doesn't exist in the database.`, ephemeral: true})
+							break
+						}
+						if ((await userData.getRoles({where: {roleId: requestedRole.id}})).length > 0) {
+							interaction.reply({content: `<@${requestedUser.id}> already has <@&${requestedRole.id}>!`, ephemeral: true})
+							break
+						}
+						userData.addRoles(role)
+						interaction.reply({content: `Gifted <@${requestedUser.id}> <@&${requestedRole.id}>!`, ephemeral: true})
+						break
                 }
                 break
             case "rank":
@@ -372,6 +407,7 @@ module.exports = {
 								if (guildRole && interaction.guild.members.me.roles.highest.comparePositionTo(guildRole) > 0) {
 									guildRole.delete("JSON import")
 								}
+								await delay(3000)
 							}
 						}
 						if (clearData) {
@@ -411,6 +447,7 @@ module.exports = {
 								let role = await interaction.guild.roles.create({name: roleData.name, color: roleData.color, reason: "Imported JSON"})
 								let roleForDatabase = await Database.models.Role.create({roleId: role.id})
 								rolesToAdd.push(roleForDatabase)
+								await delay(3000)
 							}
 							await rank.addRoles(rolesToAdd)
 							await guildData.addRoles(rolesToAdd)

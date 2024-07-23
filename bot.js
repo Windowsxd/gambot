@@ -1,12 +1,21 @@
 import { Sequelize, DataTypes } from "sequelize";
 
-//, {logging: false}
 const Discord = require("discord.js")
 const path = require("bun:path")
 const fs = require("fs")
 const commandsPath = path.join(__dirname, 'commands')
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'))
-const Database = new Sequelize("sqlite:Data.sqlite", {logging: false});
+let dataPath = "data.sqlite" //sequelize automatically lowers the name when making the file, so leave this lowercase
+
+function callback(err) {
+	if (err) throw err
+}
+
+await fs.mkdir("./backups", {recursive: true}, callback)
+await fs.copyFile(dataPath, `./backups/${Date.now()}.sqlite`, callback)
+
+const Database = new Sequelize("sqlite:"+dataPath, {logging: false});
+
 const Guild = Database.define("Guild", {
 	guildId: {
 		type: DataTypes.STRING,
@@ -96,7 +105,7 @@ Role.belongsTo(Rank)
 Role.belongsToMany(User, {through: "UserRoles"})
 Role.belongsTo(Guild)
 //These models are also located at Database.models.name, where name is the name of the model.
-await Database.sync({alter: true});
+await Database.sync();
 
 const client = new Discord.Client({ intents: [
 	Discord.GatewayIntentBits.Guilds,
@@ -145,4 +154,23 @@ client.on("interactionCreate", async interaction => {
 client.on("roleDelete", async role => {
 	Role.destroy({where: {roleId: role.id}})
 })
+
 client.login(process.env.TOKEN)
+
+setInterval(async () => {
+	let thisFile = fs.readFileSync(dataPath)
+	let allBackups = fs.readdirSync("./backups").map((fileName) => {return Number(fileName.split(".")[0])})
+	let latestSave = 0
+	for (let fileTime of allBackups) {
+		if (fileTime > latestSave) {
+			latestSave = fileTime
+		}
+	}
+	if (latestSave == 0) {
+		return null
+	}
+	let latestFile = fs.readFileSync(`./backups/${latestSave}.sqlite`)
+	if (!thisFile.equals(latestFile)) {
+		await fs.copyFile(dataPath, `./backups/${Date.now()}.sqlite`, callback)
+	}
+}, 10000)
