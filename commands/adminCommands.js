@@ -254,7 +254,6 @@ module.exports = {
                         break
                     case "remove":
 						var requestedRole = interaction.options.getRole("role")
-                        var requestedRank = interaction.options.getString("rank")
 						if (requestedRole.id == interaction.guildId) {
 							interaction.reply({content: "@everyone guaranteed is not registered.", ephemeral: true})
 							break
@@ -265,7 +264,7 @@ module.exports = {
 							break
 						}
 						await role.destroy()
-						interaction.reply({content: `Unregistered <@&${requestedRole.id}> from ${rank.name}`, ephemeral: true})
+						interaction.reply({content: `Unregistered <@&${requestedRole.id}> from this guild.`, ephemeral: true})
                         break
 					case "gift":
 						var requestedRole = interaction.options.getRole("role")
